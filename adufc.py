@@ -24,12 +24,12 @@ def extrair_nome_titular(texto, plano):
     if plano == "Unimed":
         for i, linha in enumerate(linhas):
             if "Carteira:" in linha:
-                # Pega a primeira linha anterior à primeira "Carteira:"
                 if i > 0:
                     nome = linhas[i - 1].strip()
-                    if re.match(r'^[A-Z\s]+$', nome):
-                        return re.sub(r"[^\w\s]", "", nome)
-                break  # importante: parar no primeiro "Carteira:"
+                    # Aqui removemos símbolos, mas permitimos letras com acento
+                    nome = re.sub(r"[^\w\sÀ-ÿ]", "", nome)
+                    return nome
+                break  # só pega o primeiro titular da página
 
     elif plano == "Uniodonto":
         # Usa a linha que tem: NOME - CPF
