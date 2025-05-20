@@ -8,180 +8,180 @@ from email.mime.application import MIMEApplication
 from email.mime.text import MIMEText
 import streamlit as st
 import zipfile
-import uuid  # já coloca no topo se ainda não tiver
+import uuid
+import time
 
 st.set_page_config(page_title="Separador de PDF por Cliente")
 
 st.title("🔍 Separador de PDF por Cliente")
-st.write("Faça upload do PDF")
-
-# Opção para escolher o plano (Unimed ou Uniodonto)
 plano_selecionado = st.selectbox("Selecione o plano", ["Unimed", "Uniodonto"])
-
-# Carregar o arquivo Excel com os nomes e e-mails
-email_file = st.file_uploader(
-    "Escolha o arquivo Excel com os e-mails", type="xlsx")
+email_file = st.file_uploader("Escolha o arquivo Excel com os e-mails", type="xlsx")
 uploaded_file = st.file_uploader("Escolha um arquivo PDF", type="pdf")
 
-# Função para extrair o nome do titular
-
-
 def extrair_nome_titular(texto):
-    match = re.search(r'NOME:\s+([A-Z\s]+)', texto)
+    # Expressão para capturar o nome que aparece isolado após "Ano" e "Contrato"
+    match = re.search(r'\b\d{4}\s+\d+\s+([A-Z\s]+)\s+Carteira:', texto)
     if match:
         nome = match.group(1).strip()
-        nome = nome.replace("\n", " ").strip()
-        nome = re.sub(r"[^\w\s]", "", nome)  # remove caracteres especiais
-        # Remove "CPF" e qualquer coisa depois
-        nome = re.sub(r"\s*CPF.*", "", nome)
+        nome = re.sub(r"[^\w\s]", "", nome)
         return nome
     return "cliente_desconhecido"
-
-# Função para separar o PDF por cliente com base no plano escolhido
 
 
 def separar_por_cliente(pdf_path, plano):
     doc = fitz.open(pdf_path)
-    cliente_docs = []
-    nome_cliente_atual = None
-    paginas_atual = []
-    arquivos_gerados = []
-
+    arquivos_gerados, nome_cliente_atual, paginas_atual = [], None, []
     for i, pagina in enumerate(doc):
         texto = pagina.get_text()
-
+        print(f"\n--- Página {i} ---\n{texto}")
         if plano == "Uniodonto" and "CLIENTE DO PLANO UNIMASTER-UNI" in texto:
             if paginas_atual:
-                caminho = salvar_pdf(doc, paginas_atual, nome_cliente_atual)
-                arquivos_gerados.append(caminho)
+                arquivos_gerados.append(salvar_pdf(doc, paginas_atual, nome_cliente_atual))
                 paginas_atual = []
-
             nome_cliente_atual = extrair_nome_titular(texto)
-
         elif plano == "Unimed" and "Prezado(a) Cliente" in texto:
             if paginas_atual:
-                caminho = salvar_pdf(doc, paginas_atual, nome_cliente_atual)
-                arquivos_gerados.append(caminho)
+                arquivos_gerados.append(salvar_pdf(doc, paginas_atual, nome_cliente_atual))
                 paginas_atual = []
-
             nome_cliente_atual = extrair_nome_titular(texto)
-
         if nome_cliente_atual:
             paginas_atual.append(i)
-
     if paginas_atual:
-        caminho = salvar_pdf(doc, paginas_atual, nome_cliente_atual)
-        arquivos_gerados.append(caminho)
-
+        arquivos_gerados.append(salvar_pdf(doc, paginas_atual, nome_cliente_atual))
     doc.close()
     return arquivos_gerados
 
-# Função para salvar o PDF gerado
-
-
 def salvar_pdf(doc_original, lista_paginas, nome_arquivo_base):
-    novo_doc = fitz.open()
+    novo = fitz.open()
     for num in lista_paginas:
-        novo_doc.insert_pdf(doc_original, from_page=num, to_page=num)
+        novo.insert_pdf(doc_original, from_page=num, to_page=num)
+    os.makedirs("arquivos_clientes", exist_ok=True)
+    nome = os.path.join("arquivos_clientes", f"{nome_arquivo_base}.pdf")
+    novo.save(nome); novo.close()
+    return nome
 
-    pasta_destino = "arquivos_clientes"
-    os.makedirs(pasta_destino, exist_ok=True)
-
-    nome_arquivo = os.path.join(pasta_destino, f"{nome_arquivo_base}.pdf")
-    novo_doc.save(nome_arquivo)
-    novo_doc.close()
-    return nome_arquivo
-
-# Função para enviar o e-mail
-
-
-def enviar_email(destinatario, nome_cliente, arquivo_pdf):
-    sender_email = os.getenv("EMAIL")
-    sender_password = os.getenv("EMAIL_PASSWORD")
-
+def enviar_email(dest, nome_cliente, pdf):
+    sender = os.getenv("EMAIL")
+    pwd = os.getenv("EMAIL_PASSWORD")
     msg = MIMEMultipart()
-    msg['From'] = sender_email
-    msg['To'] = destinatario
-    msg['Subject'] = f"ADUFC - UNIMED Fortaleza e UNIODONTO Fortaleza (Demonstrativo para PROGEP e IR)"
-
-    body = f"Prezado(a) Professor(a),\n\nSeguem em anexo os demonstrativos de suas despesas com plano de saúde e plano odontológico deste ano, esses documentos deverão ser encaminhados à Pró-Reitoria de Gestão de Pessoas (PROGEP) e à Receita Federal.\n\n\nEm caso de dúvidas, a ADUFC recomenda que os/as docentes entrem em contato com a unidade de gestão de pessoas de sua universidade para obter mais informações quanto à forma de entrega da documentação e dos documentos aceitos para comprovação dos gastos.\n\nAtenciosamente,\nSetor de Atendimento ao Docente"
+    msg['From'], msg['To'] = sender, dest
+    msg['Subject'] = f"ADUFC - UNIMED/UNIODONTO ({nome_cliente})"
+    body = (
+        "Prezado(a) Professor(a),\n\n"
+        "Seguem em anexo os demonstrativos de suas despesas...\n\n"
+        "Atenciosamente,\nSetor de Atendimento ao Docente"
+    )
     msg.attach(MIMEText(body, 'plain'))
-
-    with open(arquivo_pdf, "rb") as file:
-        part = MIMEApplication(file.read(), Name=os.path.basename(arquivo_pdf))
-        part['Content-Disposition'] = f'attachment; filename="{os.path.basename(arquivo_pdf)}"'
+    with open(pdf, "rb") as f:
+        part = MIMEApplication(f.read(), Name=os.path.basename(pdf))
+        part['Content-Disposition'] = f'attachment; filename="{os.path.basename(pdf)}"'
         msg.attach(part)
-
     try:
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
-            server.login(sender_email, sender_password)
-            server.sendmail(sender_email, destinatario, msg.as_string())
-        print(f"E-mail enviado para {destinatario}!")
+            server.login(sender, pwd)
+            server.sendmail(sender, dest, msg.as_string())
+        return True, None
     except Exception as e:
-        print(f"Erro ao enviar e-mail para {destinatario}: {e}")
-
-# Função para criar um arquivo .zip com todos os PDFs gerados
-
+        return False, str(e)
 
 def criar_zip(arquivos):
-    zip_nome = "arquivos_clientes.zip"
-    with zipfile.ZipFile(zip_nome, 'w') as zipf:
-        for arquivo in arquivos:
-            zipf.write(arquivo, os.path.basename(arquivo))
-    return zip_nome
+    nome = "arquivos_clientes.zip"
+    with zipfile.ZipFile(nome, 'w') as z:
+        for a in arquivos:
+            z.write(a, os.path.basename(a))
+    return nome
 
-
-# Verificar se os arquivos foram carregados antes de prosseguir
+# fluxo principal
 if email_file and uploaded_file:
     df_emails = pd.read_excel(email_file)
-
     with open("temp_input.pdf", "wb") as f:
         f.write(uploaded_file.read())
 
-    with st.spinner("📂 Processando o arquivo..."):
+    with st.spinner("Processando..."):
         arquivos = separar_por_cliente("temp_input.pdf", plano_selecionado)
+    st.success(f"{len(arquivos)} PDFs gerados!")
 
-    st.success(f"✅ {len(arquivos)} arquivos gerados!")
+    with st.expander("🔍 Arquivos gerados"):
+        for a in arquivos:
+            nome = os.path.basename(a)
+            st.write(f"- {nome}")
+            st.download_button(f"Baixar {nome}", data=open(a,"rb").read(),
+                               file_name=nome, mime="application/pdf",
+                               key=str(uuid.uuid4()))
 
-    # Adicionar um botão para mostrar ou esconder os nomes e botões de download dos PDFs
-    with st.expander("Clique para ver os arquivos gerados 🔍"):
-        for arquivo in arquivos:
-            nome_base = os.path.basename(arquivo)
-            st.write(f"- {nome_base}")
-            st.download_button(
-                label=f"Baixar {nome_base}",
-                data=open(arquivo, "rb").read(),
-                file_name=nome_base,
-                mime="application/pdf",
-                key=f"download_{nome_base}_{uuid.uuid4()}"
-            )
-
-    # Adicionar um botão para baixar todos os arquivos em um zip
     zip_arquivo = criar_zip(arquivos)
     with open(zip_arquivo, "rb") as f:
-        st.download_button(
-            label="Baixar todos os arquivos 💾",
-            data=f,
-            file_name=zip_arquivo,
-            mime="application/zip"
-        )
+        st.download_button("📥 Baixar todos (ZIP)", f, zip_arquivo, "application/zip")
 
-    # Adicionar um botão para enviar os e-mails
     if st.button("Enviar E-mails ✉️"):
-        for arquivo in arquivos:
-            nome_arquivo_cliente = os.path.basename(
-                arquivo).replace(".pdf", "")
-            # Ajustado para 'Docente'
-            cliente_info = df_emails[df_emails['Docente']
-                                     == nome_arquivo_cliente]
+        erros_envio = []
+        sem_corresp = []
+        sucessos = []
+        cont = 0
 
-            if not cliente_info.empty:
-                email_cliente = cliente_info.iloc[0]['Email']
-                enviar_email(email_cliente, nome_arquivo_cliente, arquivo)
-                st.write(
-                    f"E-mail enviado para {nome_arquivo_cliente} ({email_cliente})")
+        for pdf in arquivos:
+            nome_cliente = os.path.basename(pdf).replace(".pdf","")
+            info = df_emails[df_emails['Docente']==nome_cliente]
+            if info.empty:
+                sem_corresp.append({'Docente': nome_cliente})
+                st.warning(f"⚠️ Sem correspondência: {nome_cliente}")
+                continue
 
-        st.success("Todos os e-mails foram enviados!")
+            email = info.iloc[0]['Email']
+            ok, err = enviar_email(email, nome_cliente, pdf)
+            if ok:
+                sucessos.append({'Docente': nome_cliente, 'Email': email})
+                st.write(f"✅ {nome_cliente} ({email})")
+            else:
+                erros_envio.append({'Docente': nome_cliente, 'Email': email, 'Erro': err})
+                st.error(f"❌ {nome_cliente} ({email}): {err}")
+
+            time.sleep(0.5)
+            cont += 1
+            if cont>=100:
+                st.warning("⏳ Aguardando 60s...")
+                time.sleep(60)
+                cont=0
+
+        # relatório de sucessos
+        if sucessos:
+            df_suc = pd.DataFrame(sucessos)
+            st.success(f"{len(sucessos)} e-mails enviados com sucesso:")
+            st.dataframe(df_suc)
+            arquivo_suc = "sucessos_envio.xlsx"
+            df_suc.to_excel(arquivo_suc, index=False)
+            with open(arquivo_suc,"rb") as f:
+                st.download_button("📄 Baixar relatório de sucessos", f,
+                                   arquivo_suc,
+                                   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+        # relatório de falhas
+        if erros_envio:
+            df_err = pd.DataFrame(erros_envio)
+            st.error(f"{len(erros_envio)} falhas de envio:")
+            st.dataframe(df_err)
+            arquivo_err = "erros_envio.xlsx"
+            df_err.to_excel(arquivo_err, index=False)
+            with open(arquivo_err,"rb") as f:
+                st.download_button("📄 Baixar relatório de erros", f,
+                                   arquivo_err,
+                                   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+        # relatório de sem correspondência
+        if sem_corresp:
+            df_sem = pd.DataFrame(sem_corresp)
+            st.warning(f"{len(sem_corresp)} sem correspondência no Excel:")
+            st.dataframe(df_sem)
+            arquivo_sem = "sem_correspondencia.xlsx"
+            df_sem.to_excel(arquivo_sem, index=False)
+            with open(arquivo_sem,"rb") as f:
+                st.download_button("📄 Baixar log de sem correspondência", f,
+                                   arquivo_sem,
+                                   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+        if not erros_envio and not sem_corresp:
+            st.balloons()
+            st.success("Tudo processado com sucesso! 🎉")
 
 else:
-    st.error("Por favor, faça o upload de ambos os arquivos: PDF e Excel!")
+    st.error("Faça upload do PDF e do Excel para prosseguir.")
