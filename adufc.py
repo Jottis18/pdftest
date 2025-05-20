@@ -19,13 +19,16 @@ email_file = st.file_uploader("Escolha o arquivo Excel com os e-mails", type="xl
 uploaded_file = st.file_uploader("Escolha um arquivo PDF", type="pdf")
 
 def extrair_nome_titular(texto):
-    # Expressão para capturar o nome que aparece isolado após "Ano" e "Contrato"
-    match = re.search(r'\b\d{4}\s+\d+\s+([A-Z\s]+)\s+Carteira:', texto)
-    if match:
-        nome = match.group(1).strip()
-        nome = re.sub(r"[^\w\s]", "", nome)
-        return nome
+    linhas = texto.splitlines()
+    for i, linha in enumerate(linhas):
+        if "Carteira:" in linha and i > 0:
+            nome = linhas[i - 1].strip()
+            # Confere se o nome está em letras maiúsculas e não contém números
+            if re.match(r'^[A-Z\s]+$', nome):
+                nome = re.sub(r"[^\w\s]", "", nome)
+                return nome
     return "cliente_desconhecido"
+
 
 
 def separar_por_cliente(pdf_path, plano):
