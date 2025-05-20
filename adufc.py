@@ -45,7 +45,6 @@ def separar_por_cliente(pdf_path, plano):
     arquivos_gerados, nome_cliente_atual, paginas_atual = [], None, []
     for i, pagina in enumerate(doc):
         texto = pagina.get_text()
-        print(f"\n--- Página {i} ---\n{texto}")
         if plano == "Uniodonto" and "CLIENTE DO PLANO UNIMASTER-UNI" in texto:
             if paginas_atual:
                 arquivos_gerados.append(salvar_pdf(doc, paginas_atual, nome_cliente_atual))
