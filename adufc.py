@@ -18,16 +18,25 @@ plano_selecionado = st.selectbox("Selecione o plano", ["Unimed", "Uniodonto"])
 email_file = st.file_uploader("Escolha o arquivo Excel com os e-mails", type="xlsx")
 uploaded_file = st.file_uploader("Escolha um arquivo PDF", type="pdf")
 
-def extrair_nome_titular(texto):
+def extrair_nome_titular(texto, plano):
     linhas = texto.splitlines()
-    for i, linha in enumerate(linhas):
-        if "Carteira:" in linha and i > 0:
-            nome = linhas[i - 1].strip()
-            # Confere se o nome está em letras maiúsculas e não contém números
-            if re.match(r'^[A-Z\s]+$', nome):
-                nome = re.sub(r"[^\w\s]", "", nome)
-                return nome
+
+    if plano == "Unimed":
+        for i, linha in enumerate(linhas):
+            if "Carteira:" in linha and i > 0:
+                nome = linhas[i - 1].strip()
+                if re.match(r'^[A-Z\s]+$', nome):
+                    return re.sub(r"[^\w\s]", "", nome)
+
+    elif plano == "Uniodonto":
+        # Usa a linha que tem: NOME - CPF
+        match = re.search(r'^([A-Z\s]+)\s+-\s+\d{3}\.\d{3}\.\d{3}-\d{2}', texto, re.MULTILINE)
+        if match:
+            nome = match.group(1).strip()
+            return re.sub(r"[^\w\s]", "", nome)
+
     return "cliente_desconhecido"
+
 
 
 
@@ -41,12 +50,12 @@ def separar_por_cliente(pdf_path, plano):
             if paginas_atual:
                 arquivos_gerados.append(salvar_pdf(doc, paginas_atual, nome_cliente_atual))
                 paginas_atual = []
-            nome_cliente_atual = extrair_nome_titular(texto)
+            nome_cliente_atual = extrair_nome_titular(texto, plano)
         elif plano == "Unimed" and "Prezado(a) Cliente" in texto:
             if paginas_atual:
                 arquivos_gerados.append(salvar_pdf(doc, paginas_atual, nome_cliente_atual))
                 paginas_atual = []
-            nome_cliente_atual = extrair_nome_titular(texto)
+            nome_cliente_atual = extrair_nome_titular(texto, plano)
         if nome_cliente_atual:
             paginas_atual.append(i)
     if paginas_atual:
