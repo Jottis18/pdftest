@@ -116,15 +116,25 @@ def criar_zip(arquivos):
 
 # --- Fluxo principal ---
 if email_file and uploaded_file:
-    df_emails = pd.read_excel(email_file)
+    # grava PDF temporário
     with open("temp_input.pdf", "wb") as f:
         f.write(uploaded_file.read())
 
+    # DEBUG: mostrar texto bruto das páginas
+    with st.expander("🔍 Debug - Texto bruto das páginas"):
+        doc_debug = fitz.open("temp_input.pdf")
+        for i, pagina in enumerate(doc_debug):
+            texto = pagina.get_text()
+            st.markdown(f"**Página {i}**")
+            st.text_area(f"Texto página {i}", texto, height=200)
+        doc_debug.close()
+
+    df_emails = pd.read_excel(email_file)
     with st.spinner("Processando..."):
         arquivos = separar_por_cliente("temp_input.pdf", plano_selecionado)
     st.success(f"{len(arquivos)} PDFs gerados!")
 
-    # Exibe e permite download dos PDFs individualmente
+    # Exibe download dos PDFs
     with st.expander("🔍 Arquivos gerados"):
         for a in arquivos:
             nome = os.path.basename(a)
@@ -133,18 +143,15 @@ if email_file and uploaded_file:
                                file_name=nome, mime="application/pdf",
                                key=str(uuid.uuid4()))
 
-    # Botão para baixar todos os PDFs em ZIP
+    # ZIP com todos os PDFs
     zip_arquivo = criar_zip(arquivos)
     with open(zip_arquivo, "rb") as fzip:
         st.download_button("📥 Baixar todos os PDFs (ZIP)", fzip, zip_arquivo, "application/zip")
 
     # Envio de e-mails
     if st.button("Enviar E-mails ✉️"):
-        erros_envio = []
-        sem_corresp = []
-        sucessos = []
+        erros_envio, sem_corresp, sucessos = [], [], []
         cont = 0
-
         for pdf in arquivos:
             nome_cliente = os.path.basename(pdf).replace(".pdf", "")
             info = df_emails[df_emails['Docente'] == nome_cliente]
@@ -152,7 +159,6 @@ if email_file and uploaded_file:
                 sem_corresp.append({'Docente': nome_cliente})
                 st.warning(f"⚠️ Sem correspondência: {nome_cliente}")
                 continue
-
             email = info.iloc[0]['Email']
             ok, err = enviar_email(email, nome_cliente, pdf)
             if ok:
@@ -160,8 +166,7 @@ if email_file and uploaded_file:
                 st.write(f"✅ {nome_cliente} ({email})")
             else:
                 erros_envio.append({'Docente': nome_cliente, 'Email': email, 'Erro': err})
-                st.error(f"❌ {nome_cliente} ({email}): {err}\n")
-
+                st.error(f"❌ {nome_cliente} ({email}): {err}")
             time.sleep(0.8)
             cont += 1
             if cont >= 50:
@@ -169,7 +174,7 @@ if email_file and uploaded_file:
                 time.sleep(60)
                 cont = 0
 
-        # Relatórios individuais
+        # Relatórios de resultado
         if sucessos:
             df_suc = pd.DataFrame(sucessos)
             st.success(f"{len(sucessos)} e-mails enviados com sucesso:")
@@ -180,7 +185,6 @@ if email_file and uploaded_file:
                 st.download_button("📄 Baixar relatório de sucessos", fs,
                                    arquivo_suc,
                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
         if erros_envio:
             df_err = pd.DataFrame(erros_envio)
             st.error(f"{len(erros_envio)} falhas de envio:")
@@ -191,7 +195,6 @@ if email_file and uploaded_file:
                 st.download_button("📄 Baixar relatório de erros", fe,
                                    arquivo_err,
                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
         if sem_corresp:
             df_sem = pd.DataFrame(sem_corresp)
             st.warning(f"{len(sem_corresp)} sem correspondência no Excel:")
