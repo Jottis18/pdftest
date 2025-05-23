@@ -32,15 +32,17 @@ def extrair_nome_titular(texto, plano):
                 break
 
     elif plano == "Uniodonto":
-        # Permite letras (inclusive acentuadas), espaços e hífen antes do CPF
-        match = re.search(
-            r'^([A-Za-zÀ-ÿ\s-]+)\s+-\s+\d{3}\.\d{3}\.\d{3}-\d{2}',
-            texto,
-            re.MULTILINE
-        )
+        # Prioriza nome do titular (CPF seguido de 'Carteira:')
+        titular_regex = r'^([A-Za-zÀ-ÿ\s-]+)\s*-\s*\d{3}\.\d{3}\.\d{3}-\d{2}\s*\n\s*Carteira:'
+        match = re.search(titular_regex, texto, re.MULTILINE)
         if match:
             nome = match.group(1).strip()
-            # Mantém letras (incluindo acentos), espaços e hífen
+            return re.sub(r"[^A-Za-zÀ-ÿ\s-]", "", nome)
+        # Se não achar, pega o primeiro CPF encontrado (dependente ou titular)
+        generic_regex = r'^([A-Za-zÀ-ÿ\s-]+)\s*-\s*\d{3}\.\d{3}\.\d{3}-\d{2}'
+        match2 = re.search(generic_regex, texto, re.MULTILINE)
+        if match2:
+            nome = match2.group(1).strip()
             return re.sub(r"[^A-Za-zÀ-ÿ\s-]", "", nome)
 
     return "cliente_desconhecido"
@@ -158,7 +160,7 @@ if email_file and uploaded_file:
                 st.write(f"✅ {nome_cliente} ({email})")
             else:
                 erros_envio.append({'Docente': nome_cliente, 'Email': email, 'Erro': err})
-                st.error(f"❌ {nome_cliente} ({email}): {err}")
+                st.error(f"❌ {nome_cliente} ({email}): {err}\n")
 
             time.sleep(0.8)
             cont += 1
