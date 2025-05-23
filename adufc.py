@@ -32,10 +32,16 @@ def extrair_nome_titular(texto, plano):
                 break
 
     elif plano == "Uniodonto":
-        match = re.search(r'^([A-Z\s]+)\s+-\s+\d{3}\.\d{3}\.\d{3}-\d{2}', texto, re.MULTILINE)
+        # Permite letras (inclusive acentuadas), espaços e hífen antes do CPF
+        match = re.search(
+            r'^([A-Za-zÀ-ÿ\s-]+)\s+-\s+\d{3}\.\d{3}\.\d{3}-\d{2}',
+            texto,
+            re.MULTILINE
+        )
         if match:
             nome = match.group(1).strip()
-            return re.sub(r"[^\w\s]", "", nome)
+            # Mantém letras (incluindo acentos), espaços e hífen
+            return re.sub(r"[^A-Za-zÀ-ÿ\s-]", "", nome)
 
     return "cliente_desconhecido"
 
