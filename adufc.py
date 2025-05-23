@@ -11,6 +11,7 @@ import zipfile
 import uuid
 import time
 
+# Configuração da página
 st.set_page_config(page_title="Separador de PDF por Cliente")
 
 st.title("🔍 Separador de PDF por Cliente")
@@ -26,13 +27,11 @@ def extrair_nome_titular(texto, plano):
             if "Carteira:" in linha:
                 if i > 0:
                     nome = linhas[i - 1].strip()
-                    # Aqui removemos símbolos, mas permitimos letras com acento
                     nome = re.sub(r"[^\w\sÀ-ÿ]", "", nome)
                     return nome
-                break  # só pega o primeiro titular da página
+                break
 
     elif plano == "Uniodonto":
-        # Usa a linha que tem: NOME - CPF
         match = re.search(r'^([A-Z\s]+)\s+-\s+\d{3}\.\d{3}\.\d{3}-\d{2}', texto, re.MULTILINE)
         if match:
             nome = match.group(1).strip()
@@ -41,14 +40,11 @@ def extrair_nome_titular(texto, plano):
     return "cliente_desconhecido"
 
 
-
-
 def separar_por_cliente(pdf_path, plano):
     doc = fitz.open(pdf_path)
     arquivos_gerados, nome_cliente_atual, paginas_atual = [], None, []
     for i, pagina in enumerate(doc):
         texto = pagina.get_text()
-        print(f"\n--- Página {i} ---\n{texto}")
         if plano == "Uniodonto" and "CLIENTE DO PLANO UNIMASTER-UNI" in texto:
             if paginas_atual:
                 arquivos_gerados.append(salvar_pdf(doc, paginas_atual, nome_cliente_atual))
@@ -66,14 +62,17 @@ def separar_por_cliente(pdf_path, plano):
     doc.close()
     return arquivos_gerados
 
+
 def salvar_pdf(doc_original, lista_paginas, nome_arquivo_base):
     novo = fitz.open()
     for num in lista_paginas:
         novo.insert_pdf(doc_original, from_page=num, to_page=num)
     os.makedirs("arquivos_clientes", exist_ok=True)
     nome = os.path.join("arquivos_clientes", f"{nome_arquivo_base}.pdf")
-    novo.save(nome); novo.close()
+    novo.save(nome)
+    novo.close()
     return nome
+
 
 def enviar_email(dest, nome_cliente, pdf):
     sender = os.getenv("EMAIL")
@@ -99,6 +98,7 @@ def enviar_email(dest, nome_cliente, pdf):
     except Exception as e:
         return False, str(e)
 
+
 def criar_zip(arquivos):
     nome = "arquivos_clientes.zip"
     with zipfile.ZipFile(nome, 'w') as z:
@@ -106,7 +106,7 @@ def criar_zip(arquivos):
             z.write(a, os.path.basename(a))
     return nome
 
-# fluxo principal
+# --- Fluxo principal ---
 if email_file and uploaded_file:
     df_emails = pd.read_excel(email_file)
     with open("temp_input.pdf", "wb") as f:
@@ -116,18 +116,21 @@ if email_file and uploaded_file:
         arquivos = separar_por_cliente("temp_input.pdf", plano_selecionado)
     st.success(f"{len(arquivos)} PDFs gerados!")
 
+    # Exibe e permite download dos PDFs individualmente
     with st.expander("🔍 Arquivos gerados"):
         for a in arquivos:
             nome = os.path.basename(a)
             st.write(f"- {nome}")
-            st.download_button(f"Baixar {nome}", data=open(a,"rb").read(),
+            st.download_button(f"Baixar {nome}", data=open(a, "rb").read(),
                                file_name=nome, mime="application/pdf",
                                key=str(uuid.uuid4()))
 
+    # Botão para baixar todos os PDFs em ZIP
     zip_arquivo = criar_zip(arquivos)
-    with open(zip_arquivo, "rb") as f:
-        st.download_button("📥 Baixar todos (ZIP)", f, zip_arquivo, "application/zip")
+    with open(zip_arquivo, "rb") as fzip:
+        st.download_button("📥 Baixar todos os PDFs (ZIP)", fzip, zip_arquivo, "application/zip")
 
+    # Envio de e-mails
     if st.button("Enviar E-mails ✉️"):
         erros_envio = []
         sem_corresp = []
@@ -135,8 +138,8 @@ if email_file and uploaded_file:
         cont = 0
 
         for pdf in arquivos:
-            nome_cliente = os.path.basename(pdf).replace(".pdf","")
-            info = df_emails[df_emails['Docente']==nome_cliente]
+            nome_cliente = os.path.basename(pdf).replace(".pdf", "")
+            info = df_emails[df_emails['Docente'] == nome_cliente]
             if info.empty:
                 sem_corresp.append({'Docente': nome_cliente})
                 st.warning(f"⚠️ Sem correspondência: {nome_cliente}")
@@ -151,52 +154,71 @@ if email_file and uploaded_file:
                 erros_envio.append({'Docente': nome_cliente, 'Email': email, 'Erro': err})
                 st.error(f"❌ {nome_cliente} ({email}): {err}")
 
-            time.sleep(0.5)
+            time.sleep(0.8)
             cont += 1
-            if cont>=100:
+            if cont >= 50:
                 st.warning("⏳ Aguardando 60s...")
                 time.sleep(60)
-                cont=0
+                cont = 0
 
-        # relatório de sucessos
+        # Relatórios individuais
         if sucessos:
             df_suc = pd.DataFrame(sucessos)
             st.success(f"{len(sucessos)} e-mails enviados com sucesso:")
             st.dataframe(df_suc)
             arquivo_suc = "sucessos_envio.xlsx"
             df_suc.to_excel(arquivo_suc, index=False)
-            with open(arquivo_suc,"rb") as f:
-                st.download_button("📄 Baixar relatório de sucessos", f,
+            with open(arquivo_suc, "rb") as fs:
+                st.download_button("📄 Baixar relatório de sucessos", fs,
                                    arquivo_suc,
                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-        # relatório de falhas
         if erros_envio:
             df_err = pd.DataFrame(erros_envio)
             st.error(f"{len(erros_envio)} falhas de envio:")
             st.dataframe(df_err)
             arquivo_err = "erros_envio.xlsx"
             df_err.to_excel(arquivo_err, index=False)
-            with open(arquivo_err,"rb") as f:
-                st.download_button("📄 Baixar relatório de erros", f,
+            with open(arquivo_err, "rb") as fe:
+                st.download_button("📄 Baixar relatório de erros", fe,
                                    arquivo_err,
                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-        # relatório de sem correspondência
         if sem_corresp:
             df_sem = pd.DataFrame(sem_corresp)
             st.warning(f"{len(sem_corresp)} sem correspondência no Excel:")
             st.dataframe(df_sem)
             arquivo_sem = "sem_correspondencia.xlsx"
             df_sem.to_excel(arquivo_sem, index=False)
-            with open(arquivo_sem,"rb") as f:
-                st.download_button("📄 Baixar log de sem correspondência", f,
+            with open(arquivo_sem, "rb") as fsc:
+                st.download_button("📄 Baixar log de sem correspondência", fsc,
                                    arquivo_sem,
                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
+        # ZIP com todos os relatórios Excel
+        excel_files = []
+        if 'arquivo_suc' in locals(): excel_files.append(arquivo_suc)
+        if 'arquivo_err' in locals(): excel_files.append(arquivo_err)
+        if 'arquivo_sem' in locals(): excel_files.append(arquivo_sem)
+        if excel_files:
+            zip_excels = "relatorios_excel.zip"
+            with zipfile.ZipFile(zip_excels, "w") as zf:
+                for ef in excel_files:
+                    zf.write(ef, os.path.basename(ef))
+            with open(zip_excels, "rb") as fzip_exc:
+                st.download_button(
+                    "📥 Baixar todos os relatórios Excel",
+                    data=fzip_exc,
+                    file_name=zip_excels,
+                    mime="application/zip"
+                )
+
+        # Finalização
         if not erros_envio and not sem_corresp:
             st.balloons()
             st.success("Tudo processado com sucesso! 🎉")
+            st.info("⏳ Esperando 10 minutos para manter o app ativo...")
+            time.sleep(600)
 
 else:
     st.error("Faça upload do PDF e do Excel para prosseguir.")
